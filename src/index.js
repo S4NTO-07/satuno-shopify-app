@@ -490,10 +490,26 @@ var C={currency:'${s.currency}',denomination:'${s.denomination||"sats"}',lightni
 var rate=0;
 function fetchRate(cb){
   var key='stn_r_'+C.currency;
-  try{var c=JSON.parse(sessionStorage.getItem(key)||'null');if(c&&Date.now()-c.ts<120000){cb(c.rate);return;}}catch(e){}
-  fetch(C.api+'/api/rate?currency='+C.currency).then(function(r){return r.json();}).then(function(d){
-    if(d.rate){try{sessionStorage.setItem(key,JSON.stringify({rate:d.rate,ts:Date.now()}));}catch(e){}cb(d.rate);}
-  }).catch(function(){cb(null);});
+  try{
+    var c=JSON.parse(sessionStorage.getItem(key)||'null');
+    if(c&&Date.now()-c.ts<120000){cb(c.rate);return;}
+  }catch(e){}
+  var url=C.api+'/api/rate?currency='+C.currency;
+  fetch(url)
+    .then(function(r){return r.json();})
+    .then(function(d){
+      if(d&&d.rate){
+        try{sessionStorage.setItem(key,JSON.stringify({rate:d.rate,ts:Date.now()}));}catch(e){}
+        cb(d.rate);
+      } else {
+        console.warn('[SATUNO] No rate in response:', d);
+        cb(null);
+      }
+    })
+    .catch(function(e){
+      console.warn('[SATUNO] Rate fetch failed:', e);
+      cb(null);
+    });
 }
 function fmt(p,r){
   var s=Math.round((p/r)*1e8);
@@ -568,19 +584,52 @@ function cartBtn(r){
   ck.parentNode.insertBefore(btn,ck);
 }
 var SELS=['.price-item--regular','.price-item--sale','.price__regular .price-item','.price__sale .price-item--sale','.product-price__price'];
-function scan(r){SELS.forEach(function(s){try{document.querySelectorAll(s).forEach(function(el){badge(el,r);});}catch(e){}});}
+function scan(r){
+  var count=0;
+  SELS.forEach(function(s){
+    try{
+      document.querySelectorAll(s).forEach(function(el){
+        badge(el,r);
+        count++;
+      });
+    }catch(e){console.warn('[SATUNO] Selector error:',s,e);}
+  });
+  console.log('[SATUNO] Elements found:', count);
+  return count;
+}
 function init(){
-  if(!C.showBadge)return;
+  console.log('[SATUNO] Initializing...', C);
+  if(!C.showBadge){console.log('[SATUNO] showBadge is false, skipping');return;}
   styles();
   fetchRate(function(r){
-    if(!r)return;
+    if(!r){console.warn('[SATUNO] No rate received, aborting');return;}
+    console.log('[SATUNO] Rate received:', r, 'Currency:', C.currency);
     rate=r;
-    scan(r);
+    var found=scan(r);
+    console.log('[SATUNO] Scan complete');
     if(window.location.pathname.includes('/cart'))cartBtn(r);
-    if(window.MutationObserver){new MutationObserver(function(ms){var ch=ms.some(function(m){return m.addedNodes.length>0;});if(ch)setTimeout(function(){scan(r);},400);}).observe(document.body,{childList:true,subtree:true});}
+    if(window.MutationObserver){
+      new MutationObserver(function(ms){
+        var ch=ms.some(function(m){return m.addedNodes.length>0;});
+        if(ch)setTimeout(function(){scan(r);},400);
+      }).observe(document.body,{childList:true,subtree:true});
+    }
   });
 }
-document.readyState==='loading'?document.addEventListener('DOMContentLoaded',init):init();
+// Expose global API
+window.SatunoWidget={
+  version:'1.0.0',
+  enable:function(){C.showBadge=true;init();},
+  disable:function(){document.querySelectorAll('.stn-b').forEach(function(el){el.remove();});},
+  refresh:function(){document.querySelectorAll('.stn-b').forEach(function(el){el.remove();});init();},
+  getConfig:function(){return C;}
+};
+
+if(document.readyState==='loading'){
+  document.addEventListener('DOMContentLoaded',init);
+}else{
+  init();
+}
 })();
   `);
 });
