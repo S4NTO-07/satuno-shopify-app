@@ -28,7 +28,7 @@ const PORT = process.env.PORT || 3001;
 const SHOPIFY_API_KEY    = process.env.SHOPIFY_API_KEY    || '';
 const SHOPIFY_API_SECRET = process.env.SHOPIFY_API_SECRET || '';
 const SHOPIFY_SCOPES     = process.env.SHOPIFY_SCOPES     || 'read_products,read_themes';
-const APP_URL            = process.env.APP_URL            || 'http://localhost:3001';
+const APP_URL            = (process.env.APP_URL || 'http://localhost:3001').replace('http://', 'https://');
 const SESSION_SECRET     = process.env.SESSION_SECRET     || 'satuno-dev-secret';
 const SATUNO_API_URL     = process.env.SATUNO_API_URL     || 'https://satuno-api-production.up.railway.app';
 
@@ -94,6 +94,7 @@ async function getBTCRate(currency) {
 function defaultSettings(currency) {
   return {
     currency:     currency || 'MXN',
+    denomination: 'sats',
     lightning:    '',
     showBadge:    true,
     showCheckout: false,
@@ -304,6 +305,14 @@ body{background:var(--bg);color:var(--text);font-family:'Space Grotesk',system-u
         </select>
       </div>
       <div class="row">
+        <div><div class="rl">Display denomination</div><div class="rs">How to show Bitcoin prices</div></div>
+        <select class="sel" name="denomination" id="denomSelect">
+          <option value="sats" ${s.denomination==='sats'||!s.denomination?'selected':''}>⚡ Sats</option>
+          <option value="btc" ${s.denomination==='btc'?'selected':''}>₿ BTC</option>
+          <option value="both" ${s.denomination==='both'?'selected':''}>+ Both</option>
+        </select>
+      </div>
+      <div class="row">
         <div><div class="rl">Show sats badge</div><div class="rs">Display sats price next to every product</div></div>
         <label class="tog"><input type="checkbox" name="showBadge" ${s.showBadge?'checked':''}><span class="tog-t"></span></label>
       </div>
@@ -383,7 +392,8 @@ ${!isPro ? `
 var rateCache = {};
 
 function loadPreview() {
-  var cur = document.getElementById('currencySelect').value;
+  var cur   = document.getElementById('currencySelect').value;
+  var denom = document.getElementById('denomSelect') ? document.getElementById('denomSelect').value : 'sats';
   fetch('/api/rate?currency=' + cur)
     .then(function(r){ return r.json(); })
     .then(function(d) {
@@ -391,7 +401,10 @@ function loadPreview() {
       rateCache[cur] = d.rate;
       var price = cur === 'USD' ? 50 : cur === 'EUR' ? 45 : 900;
       var sats  = Math.round((price / d.rate) * 1e8);
-      var label = sats >= 1000 ? Math.round(sats/1000) + 'k sats' : sats + ' sats';
+      var btc   = (price / d.rate).toFixed(6);
+      var sLabel = sats >= 1000 ? Math.round(sats/1000) + 'k sats' : sats + ' sats';
+      var bLabel = '₿' + btc;
+      var label  = denom === 'btc' ? bLabel : denom === 'both' ? sLabel + ' / ' + bLabel : sLabel;
       document.getElementById('prevBadge').textContent = '~' + label;
       document.getElementById('prevPrice').textContent = '$' + price.toFixed(2);
     }).catch(function(){
@@ -400,6 +413,7 @@ function loadPreview() {
 }
 
 document.getElementById('currencySelect').addEventListener('change', loadPreview);
+if(document.getElementById('denomSelect')) document.getElementById('denomSelect').addEventListener('change', loadPreview);
 loadPreview();
 
 document.getElementById('settingsForm').addEventListener('submit', function(e) {
@@ -412,6 +426,7 @@ document.getElementById('settingsForm').addEventListener('submit', function(e) {
       shop: '${shop}',
       settings: {
         currency:     fd.get('currency'),
+        denomination: fd.get('denomination') || 'sats',
         lightning:    fd.get('lightning') || '',
         showBadge:    fd.get('showBadge') === 'on',
         showCheckout: fd.get('showCheckout') === 'on',
@@ -454,7 +469,7 @@ app.get('/api/settings', (req, res) => {
   const { shop } = req.query;
   if (!shop || !merchants[shop]) return res.status(404).json({ error: 'Not found' });
   const s = merchants[shop].settings;
-  res.json({ currency: s.currency, lightning: s.lightning, showBadge: s.showBadge, showCheckout: s.showCheckout, badgeColor: s.badgeColor, plan: s.plan });
+  res.json({ currency: s.currency, denomination: s.denomination||'sats', lightning: s.lightning, showBadge: s.showBadge, showCheckout: s.showCheckout, badgeColor: s.badgeColor, plan: s.plan });
 });
 
 // Widget script — dynamic per merchant
@@ -471,7 +486,7 @@ app.get('/widget.js', (req, res) => {
 /* SATUNO Bitcoin Pricing — ${shop || 'generic'} — v1.0.0 */
 (function(){
 'use strict';
-var C={currency:'${s.currency}',lightning:'${s.lightning}',color:'${s.badgeColor}',showBadge:${s.showBadge},showCheckout:${s.showCheckout},plan:'${s.plan}',api:'${APP_URL}'};
+var C={currency:'${s.currency}',denomination:'${s.denomination||"sats"}',lightning:'${s.lightning}',color:'${s.badgeColor}',showBadge:${s.showBadge},showCheckout:${s.showCheckout},plan:'${s.plan}',api:'${APP_URL}'};
 var rate=0;
 function fetchRate(cb){
   var key='stn_r_'+C.currency;
@@ -480,7 +495,15 @@ function fetchRate(cb){
     if(d.rate){try{sessionStorage.setItem(key,JSON.stringify({rate:d.rate,ts:Date.now()}));}catch(e){}cb(d.rate);}
   }).catch(function(){cb(null);});
 }
-function fmt(p,r){var s=Math.round((p/r)*1e8);if(s>=1000000)return(s/1000000).toFixed(1)+'M sats';if(s>=1000)return Math.round(s/1000)+'k sats';return s+' sats';}
+function fmt(p,r){
+  var s=Math.round((p/r)*1e8);
+  var btc=(p/r).toFixed(6);
+  var sLabel=s>=1000000?(s/1000000).toFixed(1)+'M sats':s>=1000?Math.round(s/1000)+'k sats':s+' sats';
+  var btcLabel='₿'+btc;
+  if(C.denomination==='btc') return btcLabel;
+  if(C.denomination==='both') return sLabel+' / '+btcLabel;
+  return sLabel;
+}
 function satsRaw(p,r){return Math.round((p/r)*1e8);}
 function styles(){
   if(document.getElementById('stn-css'))return;
