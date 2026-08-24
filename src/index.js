@@ -592,13 +592,13 @@ function addBadge(el) {
   var txt = el.textContent.trim();
   var priceText = '';
   // Find first segment with numbers
-  var segs = txt.replace(/\s+/g, ' ').split(' ');
+  var segs = txt.replace(/[ \t\r]+/g, ' ').split(' ');
   for (var i = 0; i < segs.length; i++) {
     if (segs[i].match(/[0-9]/)) { priceText = segs[i]; break; }
   }
   if (!priceText) return;
 
-  var cleaned = priceText.replace(/[^\d.]/g, '');
+  var cleaned = priceText.replace(/[^0-9.]/g, '');
   var price = parseFloat(cleaned);
   if (!price || price <= 0 || price > 9999999) return;
 
