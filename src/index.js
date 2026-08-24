@@ -126,8 +126,10 @@ app.get('/auth', (req, res) => {
   if (!shop) return res.status(400).send('Missing shop parameter');
 
   const nonce = generateNonce();
-  req.session.nonce = nonce;
-  req.session.shop  = shop;
+
+  // Store nonce in cookie (more reliable than session in stateless deploys)
+  res.cookie('satuno_nonce', nonce, { httpOnly: true, secure: true, sameSite: 'none', maxAge: 60000 });
+  res.cookie('satuno_shop', shop, { httpOnly: true, secure: true, sameSite: 'none', maxAge: 60000 });
 
   const authUrl = `https://${shop}/admin/oauth/authorize?` +
     `client_id=${SHOPIFY_API_KEY}` +
@@ -142,8 +144,12 @@ app.get('/auth', (req, res) => {
 app.get('/auth/callback', async (req, res) => {
   const { shop, code, state } = req.query;
 
-  if (state !== req.session.nonce) {
-    return res.status(403).send('State mismatch');
+  const storedNonce = req.cookies.satuno_nonce;
+  const storedShop  = req.cookies.satuno_shop;
+
+  if (!storedNonce || state !== storedNonce) {
+    console.log('State mismatch:', { state, storedNonce });
+    return res.status(403).send('State mismatch — please try installing again. <a href="/auth?shop=' + (shop||storedShop||'') + '">Retry</a>');
   }
   if (!validateHmac(req.query)) {
     return res.status(403).send('Invalid HMAC');
