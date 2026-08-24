@@ -589,11 +589,12 @@ function addBadge(el) {
   if (el.querySelector('.price-item')) return;
 
   // Get price from first line of text
-  var lines = el.textContent.split('\n');
+  var txt = el.textContent.trim();
   var priceText = '';
-  for (var i = 0; i < lines.length; i++) {
-    var line = lines[i].trim();
-    if (line && line.match(/[\d]/)) { priceText = line; break; }
+  // Find first segment with numbers
+  var segs = txt.replace(/\s+/g, ' ').split(' ');
+  for (var i = 0; i < segs.length; i++) {
+    if (segs[i].match(/[0-9]/)) { priceText = segs[i]; break; }
   }
   if (!priceText) return;
 
