@@ -560,14 +560,16 @@ function badge(el,r){
   if(el.dataset.stnOk)return;
   if(el.closest('header,nav,footer,[class*="announcement"],[class*="header-bar"]'))return;
   if(el.querySelector('.price-item'))return;
-  var raw=el.textContent.trim();
-  if(!raw||raw.length>50)return;
+  if(el.querySelector('.stn-b'))return;
+  var raw=el.textContent.trim().split('\n')[0].trim();
+  if(!raw||raw.length>30)return;
   var t=raw.replace(/[^\d.]/g,'');
   var p=parseFloat(t);
   if(!p||p<=0||p>9999999)return;
-  if(el.querySelector('.stn-b'))return;
   el.dataset.stnOk='1';
-  var b=document.createElement('span');b.className='stn-b';b.textContent='~'+fmt(p,r)+' sats';
+  var b=document.createElement('span');
+  b.className='stn-b';
+  b.textContent='~'+fmt(p,r);
   el.appendChild(b);
 }
 function cartBtn(r){
