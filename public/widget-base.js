@@ -174,8 +174,8 @@ function addCartButton() {
     document.querySelector('.cart__checkout-button');
   if (!checkout || !checkout.offsetParent) return;
   var totalEl =
-    document.querySelector('.cart-drawer__footer .totals__total-value') ||
-    document.querySelector('.totals__total-value') ||
+    document.querySelector('#CartDrawer .totals__subtotal-value') ||
+    document.querySelector('.totals__subtotal-value') ||
     document.querySelector('.cart__total') ||
     document.querySelector('.cart-subtotal__price');
   var total = totalEl ? parseFloat(totalEl.textContent.replace(/[^0-9.]/g,'')) : 0;
