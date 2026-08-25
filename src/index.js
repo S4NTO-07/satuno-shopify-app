@@ -493,9 +493,13 @@ app.post('/api/settings', (req, res) => {
 // API — get settings (called by widget)
 app.get('/api/settings', (req, res) => {
   const { shop } = req.query;
-  if (!shop || !merchants[shop]) return res.status(404).json({ error: 'Not found' });
-  const s = merchants[shop].settings;
-  res.json({ currency: s.currency, denomination: s.denomination||'sats', lightning: s.lightning, showBadge: s.showBadge, showCheckout: s.showCheckout, badgeColor: s.badgeColor, plan: s.plan });
+  // Always reload from file to get latest settings
+  const fresh = loadMerchants();
+  if (!shop || !fresh[shop]) return res.status(404).json({ error: 'Not found' });
+  // Also update in-memory store
+  if (fresh[shop]) merchants[shop] = fresh[shop];
+  const s = fresh[shop].settings;
+  res.json({ currency: s.currency, denomination: s.denomination||'sats', lightning: s.lightning||'', showBadge: s.showBadge !== false, showCheckout: !!s.showCheckout, badgeColor: s.badgeColor||'#FF8A00', plan: s.plan||'free' });
 });
 
 // Widget script — served from static file
