@@ -56,8 +56,8 @@ function addStyles() {
     '.stn-cp{background:none;border:1px solid #333;color:#777;border-radius:4px;padding:3px 7px;font-size:10px;cursor:pointer}' +
     '.stn-ws{display:flex;gap:6px;justify-content:center;flex-wrap:wrap;margin-bottom:12px}' +
     '.stn-wa{font-size:11px;color:#FF8A00;text-decoration:none;background:rgba(255,138,0,.08);border:1px solid rgba(255,138,0,.2);border-radius:5px;padding:4px 9px}' +
-    '.stn-cart{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;background:#FF8A00;color:#000;border:none;border-radius:8px;padding:14px;font-size:15px;font-weight:700;cursor:pointer;margin-bottom:10px;font-family:system-ui,sans-serif}' +
-    '.stn-cart:hover{opacity:.88}';
+    '.stn-cart{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;background:transparent;color:#FF8A00;border:2px solid #FF8A00;border-radius:8px;padding:12px;font-size:14px;font-weight:600;cursor:pointer;margin-bottom:8px;font-family:system-ui,sans-serif;transition:all .2s}' +
+    '.stn-cart:hover{background:#FF8A00;color:#000}' +
   document.head.appendChild(s);
 }
 
