@@ -169,28 +169,31 @@ function addCartButton() {
   if (!SHOW_CHECKOUT) return;
   if (document.getElementById('stn-cart-btn')) return;
   var checkout =
+    document.querySelector('#CartDrawer-Checkout') ||
     document.querySelector('[name="checkout"]') ||
-    document.querySelector('.cart__checkout-button') ||
-    document.querySelector('button[type="submit"][name="checkout"]');
-  if (!checkout) return;
+    document.querySelector('.cart__checkout-button');
+  if (!checkout || !checkout.offsetParent) return;
   var totalEl =
+    document.querySelector('.cart-drawer__footer .totals__total-value') ||
     document.querySelector('.totals__total-value') ||
     document.querySelector('.cart__total') ||
     document.querySelector('.cart-subtotal__price');
   var total = totalEl ? parseFloat(totalEl.textContent.replace(/[^0-9.]/g,'')) : 0;
   var sats = total ? Math.round((total/rate)*1e8) : 0;
+  var label = sats >= 1000 ? Math.round(sats/1000)+'k sats' : sats+' sats';
   var btn = document.createElement('button');
   btn.id = 'stn-cart-btn'; btn.className = 'stn-cart';
-  btn.innerHTML = '\u26a1 Pay with Lightning' + (sats ? ' \u00b7 '+Math.round(sats/1000)+'k sats' : '');
+  btn.innerHTML = '\u26a1 Pay with Lightning' + (sats ? ' \u00b7 ~'+label : '');
   btn.onclick = function(){ openModal(sats, CURRENCY+' '+total.toLocaleString()); };
   checkout.parentNode.insertBefore(btn, checkout);
+  log('Lightning button added');
 }
 
 function scan() {
   SELECTORS.forEach(function(sel) {
     try { document.querySelectorAll(sel).forEach(addBadge); } catch(e) {}
   });
-  if (window.location.pathname.indexOf('/cart') > -1) addCartButton();
+  addCartButton();
 }
 
 // ── Rate ──────────────────────────────────────────────────────────
