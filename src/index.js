@@ -201,6 +201,33 @@ app.get('/auth/callback', async (req, res) => {
     req.session.shop        = shop;
     req.session.accessToken = access_token;
 
+    // Register ScriptTag — Shopify injects widget automatically
+    try {
+      const widgetUrl = APP_URL + '/widget.js?shop=' + shop;
+      const stRes = await fetch(`https://${shop}/admin/api/2025-10/script_tags.json`, {
+        method: 'POST',
+        headers: {
+          'X-Shopify-Access-Token': access_token,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          script_tag: {
+            event: 'onload',
+            src: widgetUrl,
+            display_scope: 'online_store'
+          }
+        })
+      });
+      const stData = await stRes.json();
+      console.log('ScriptTag registered:', stData.script_tag?.id || stData);
+      if (stData.script_tag?.id) {
+        merchants[shop].scriptTagId = stData.script_tag.id;
+        saveMerchants(merchants);
+      }
+    } catch(e) {
+      console.error('ScriptTag error:', e.message);
+    }
+
     console.log(`✅ Installed: ${shop} (${shopInfo.name})`);
     res.redirect(`/app?shop=${shop}`);
 
@@ -481,25 +508,78 @@ app.get('/api/rate', async (req, res) => {
 });
 
 // API — save settings
-app.post('/api/settings', (req, res) => {
+app.post('/api/settings', async (req, res) => {
   const { shop, settings } = req.body;
   if (!shop || !merchants[shop]) return res.status(404).json({ success: false });
   merchants[shop].settings = { ...merchants[shop].settings, ...settings };
   saveMerchants(merchants);
   console.log('Settings updated:', shop, merchants[shop].settings);
+
+  // Save to Shopify metafields for persistence
+  try {
+    const token = merchants[shop].accessToken;
+    await fetch(`https://${shop}/admin/api/2025-10/metafields.json`, {
+      method: 'POST',
+      headers: { 'X-Shopify-Access-Token': token, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        metafield: {
+          namespace: 'satuno',
+          key: 'settings',
+          value: JSON.stringify(merchants[shop].settings),
+          type: 'json'
+        }
+      })
+    });
+    console.log('Settings saved to Shopify metafields');
+  } catch(e) { console.error('Metafield save error:', e.message); }
+
   res.json({ success: true, settings: merchants[shop].settings });
 });
 
 // API — get settings (called by widget)
-app.get('/api/settings', (req, res) => {
+app.get('/api/settings', async (req, res) => {
   const { shop } = req.query;
-  // Always reload from file to get latest settings
+  if (!shop) return res.status(400).json({ error: 'Missing shop' });
+
+  // Try Shopify metafields first (most reliable)
+  const merchant = merchants[shop] || loadMerchants()[shop];
+  if (merchant && merchant.accessToken) {
+    try {
+      const mfRes = await fetch(
+        `https://${shop}/admin/api/2025-10/metafields.json?namespace=satuno&key=settings`,
+        { headers: { 'X-Shopify-Access-Token': merchant.accessToken } }
+      );
+      const mfData = await mfRes.json();
+      const mf = mfData.metafields && mfData.metafields[0];
+      if (mf && mf.value) {
+        const s = JSON.parse(mf.value);
+        console.log('Settings from metafields:', shop, s.denomination);
+        return res.json({
+          currency:     s.currency     || 'MXN',
+          denomination: s.denomination || 'sats',
+          lightning:    s.lightning    || '',
+          showBadge:    s.showBadge    !== false,
+          showCheckout: !!s.showCheckout,
+          badgeColor:   s.badgeColor   || '#FF8A00',
+          plan:         s.plan         || 'free'
+        });
+      }
+    } catch(e) { console.error('Metafield read error:', e.message); }
+  }
+
+  // Fallback to file
   const fresh = loadMerchants();
-  if (!shop || !fresh[shop]) return res.status(404).json({ error: 'Not found' });
-  // Also update in-memory store
-  if (fresh[shop]) merchants[shop] = fresh[shop];
+  if (!fresh[shop]) return res.status(404).json({ error: 'Not found' });
   const s = fresh[shop].settings;
-  res.json({ currency: s.currency, denomination: s.denomination||'sats', lightning: s.lightning||'', showBadge: s.showBadge !== false, showCheckout: !!s.showCheckout, badgeColor: s.badgeColor||'#FF8A00', plan: s.plan||'free' });
+  res.json({
+    currency:     s.currency     || 'MXN',
+    denomination: s.denomination || 'sats',
+    lightning:    s.lightning    || '',
+    showBadge:    s.showBadge    !== false,
+    showCheckout: !!s.showCheckout,
+    badgeColor:   s.badgeColor   || '#FF8A00',
+    plan:         s.plan         || 'free'
+  });
 });
 
 // Widget script — served from static file
@@ -526,7 +606,11 @@ app.get('/widget.js', (req, res) => {
 // Webhook — uninstalled — uninstalled
 app.post('/webhooks/app/uninstalled', (req, res) => {
   const shop = req.headers['x-shopify-shop-domain'];
-  if (shop && merchants[shop]) { delete merchants[shop]; console.log(`Uninstalled: ${shop}`); }
+  if (shop && merchants[shop]) {
+    delete merchants[shop];
+    saveMerchants(merchants);
+    console.log('Uninstalled:', shop);
+  }
   res.sendStatus(200);
 });
 
