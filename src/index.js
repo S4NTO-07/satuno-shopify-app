@@ -472,232 +472,25 @@ app.get('/api/settings', (req, res) => {
   res.json({ currency: s.currency, denomination: s.denomination||'sats', lightning: s.lightning, showBadge: s.showBadge, showCheckout: s.showCheckout, badgeColor: s.badgeColor, plan: s.plan });
 });
 
-// Widget script — dynamic per merchant
+// Widget script — served from static file
+const fs   = require('fs');
+const path = require('path');
+
 app.get('/widget.js', (req, res) => {
-  const shop     = req.query.shop || '';
-  const merchant = merchants[shop];
-  const s        = merchant ? merchant.settings : defaultSettings('USD');
+  const shop = req.query.shop || '';
+  const widgetPath = path.join(__dirname, '../public/widget-base.js');
 
   res.setHeader('Content-Type', 'application/javascript');
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Access-Control-Allow-Origin', '*');
 
-  const color    = s.badgeColor || '#FF8A00';
-  const currency = s.currency   || 'USD';
-  const denom    = s.denomination || 'sats';
-  const lightning = s.lightning || '';
-  const showCheckout = s.showCheckout || false;
-
-  res.send(`
-/* SATUNO Bitcoin Pricing v1.0.0 — ${shop} */
-(function(){
-'use strict';
-var CURRENCY = '${currency}';
-var DENOM    = '${denom}';
-var COLOR    = '${color}';
-var LIGHTNING = '${lightning}';
-var SHOW_CHECKOUT = ${showCheckout};
-var API = '${APP_URL}';
-var rate = 0;
-var BADGE_CLASS = 'stn-b';
-
-function log(msg){ console.log('[SATUNO]', msg); }
-
-// Inject CSS
-function addStyles() {
-  if (document.getElementById('stn-css')) return;
-  var s = document.createElement('style');
-  s.id = 'stn-css';
-  s.textContent = [
-    '.'+BADGE_CLASS+'{',
-      'display:inline-flex;align-items:center;',
-      'background:rgba(255,138,0,.1);',
-      'border:1px solid rgba(255,138,0,.3);',
-      'border-radius:4px;',
-      'padding:2px 8px;',
-      'font-size:11px;',
-      'font-weight:600;',
-      'color:${color};',
-      'margin-left:6px;',
-      'white-space:nowrap;',
-      'vertical-align:middle;',
-      'font-family:system-ui,sans-serif;',
-      'line-height:1.6',
-    '}',
-    '.stn-modal{display:none;position:fixed;inset:0;background:rgba(0,0,0,.8);z-index:999999;align-items:center;justify-content:center;padding:20px}',
-    '.stn-modal.open{display:flex}',
-    '.stn-card{background:#1a1a1a;border-radius:16px;padding:24px;max-width:320px;width:100%;text-align:center;font-family:system-ui,sans-serif;color:#fff;position:relative}',
-    '.stn-x{position:absolute;top:10px;right:14px;background:none;border:none;color:#666;font-size:22px;cursor:pointer}',
-    '.stn-x:hover{color:#fff}',
-    '.stn-amt{font-size:26px;font-weight:800;color:${color};margin:12px 0 4px}',
-    '.stn-sub{font-size:12px;color:#666;margin-bottom:14px}',
-    '.stn-qw{background:#fff;border-radius:8px;padding:8px;display:inline-block;margin-bottom:12px}',
-    '.stn-qw img{display:block;width:150px;height:150px}',
-    '.stn-addr{display:flex;align-items:center;gap:6px;background:#111;border:1px solid #222;border-radius:7px;padding:7px 10px;margin-bottom:12px}',
-    '.stn-addr span{flex:1;font-size:11px;font-family:monospace;color:#999;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
-    '.stn-cp{background:none;border:1px solid #333;color:#777;border-radius:4px;padding:3px 7px;font-size:10px;cursor:pointer}',
-    '.stn-ws{display:flex;gap:6px;justify-content:center;flex-wrap:wrap;margin-bottom:12px}',
-    '.stn-wa{font-size:11px;color:${color};text-decoration:none;background:rgba(255,138,0,.08);border:1px solid rgba(255,138,0,.2);border-radius:5px;padding:4px 9px}',
-    '.stn-cart{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;background:${color};color:#000;border:none;border-radius:8px;padding:14px;font-size:15px;font-weight:700;cursor:pointer;margin-bottom:10px;transition:opacity .15s;font-family:system-ui,sans-serif}',
-    '.stn-cart:hover{opacity:.88}',
-  ].join('');
-  document.head.appendChild(s);
-}
-
-// Format sats/btc label
-function fmt(price, r) {
-  var s = Math.round((price / r) * 1e8);
-  var btc = (price / r).toFixed(6);
-  var sLabel = s >= 1000000 ? (s/1000000).toFixed(1)+'M sats' : s >= 1000 ? Math.round(s/1000)+'k sats' : s+' sats';
-  var bLabel = '₿'+btc;
-  if (DENOM === 'btc')  return bLabel;
-  if (DENOM === 'both') return sLabel+' / '+bLabel;
-  return sLabel;
-}
-
-// Open Lightning modal
-function openModal(sats, label) {
-  var ex = document.getElementById('stn-modal');
-  if (ex) ex.remove();
-  var ln = LIGHTNING;
-  var qr = 'https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=' + encodeURIComponent(ln ? 'lightning:'+ln : 'lightning:satunohq@proton.me');
-  var m = document.createElement('div');
-  m.id = 'stn-modal'; m.className = 'stn-modal open';
-  m.innerHTML = '<div class="stn-card">' +
-    '<button class="stn-x" id="stn-x">×</button>' +
-    '<div style="font-size:15px;font-weight:700">⚡ Pay with Lightning</div>' +
-    '<div class="stn-amt">'+sats.toLocaleString()+' sats</div>' +
-    '<div class="stn-sub">'+label+'</div>' +
-    '<div class="stn-qw"><img src="'+qr+'" alt="QR"/></div>' +
-    '<div class="stn-addr"><span>'+(ln||'satunohq@proton.me')+'</span><button class="stn-cp" id="stn-cp">Copy</button></div>' +
-    '<div class="stn-ws"><a class="stn-wa" href="https://walletofsatoshi.com" target="_blank">Wallet of Satoshi</a><a class="stn-wa" href="https://strike.me" target="_blank">Strike</a><a class="stn-wa" href="https://muun.com" target="_blank">Muun</a></div>' +
-    '<div style="font-size:10px;color:#333">Powered by SATUNO</div></div>';
-  document.body.appendChild(m);
-  document.getElementById('stn-x').onclick = function(){ m.remove(); };
-  m.onclick = function(e){ if(e.target===m) m.remove(); };
-  document.getElementById('stn-cp').onclick = function(){
-    var b=this; navigator.clipboard.writeText(ln||'satunohq@proton.me').then(function(){ b.textContent='✓'; setTimeout(function(){ b.textContent='Copy'; },1500); });
-  };
-}
-
-// Add badge to element
-function addBadge(el) {
-  if (!rate) return;
-  if (el.dataset.stnDone) return;
-  if (el.querySelector('.'+BADGE_CLASS)) return;
-  if (el.closest('header,nav,footer,[class*="announcement"]')) return;
-  if (el.querySelector('.price-item')) return;
-
-  // Get price from first line of text
-  var txt = el.textContent.trim();
-  var priceText = '';
-  // Find first segment with numbers
-  var segs = txt.replace(/[ \t\r]+/g, ' ').split(' ');
-  for (var i = 0; i < segs.length; i++) {
-    if (segs[i].match(/[0-9]/)) { priceText = segs[i]; break; }
+  try {
+    const widgetCode = fs.readFileSync(widgetPath, 'utf8');
+    res.send(widgetCode);
+  } catch(err) {
+    console.error('Widget file not found:', err);
+    res.status(500).send('// Widget unavailable');
   }
-  if (!priceText) return;
-
-  var cleaned = priceText.replace(/[^0-9.]/g, '');
-  var price = parseFloat(cleaned);
-  if (!price || price <= 0 || price > 9999999) return;
-
-  el.dataset.stnDone = '1';
-  var b = document.createElement('span');
-  b.className = BADGE_CLASS;
-  b.textContent = '~' + fmt(price, rate);
-  el.appendChild(b);
-}
-
-// Add cart Lightning button
-function addCartButton() {
-  if (!SHOW_CHECKOUT) return;
-  if (document.getElementById('stn-cart-btn')) return;
-  var checkout = document.querySelector('[name="checkout"]') ||
-    document.querySelector('.cart__checkout-button') ||
-    document.querySelector('button[type="submit"][name="checkout"]');
-  if (!checkout) return;
-
-  var totalEl = document.querySelector('.totals__total-value') ||
-    document.querySelector('.cart__total') ||
-    document.querySelector('.cart-subtotal__price');
-  var total = totalEl ? parseFloat(totalEl.textContent.replace(/[^\d.]/g,'')) : 0;
-  var sats = total ? Math.round((total/rate)*1e8) : 0;
-
-  var btn = document.createElement('button');
-  btn.id = 'stn-cart-btn';
-  btn.className = 'stn-cart';
-  btn.innerHTML = '⚡ Pay with Lightning' + (sats ? ' · ' + Math.round(sats/1000) + 'k sats' : '');
-  btn.onclick = function() { openModal(sats, CURRENCY + ' ' + total.toLocaleString()); };
-  checkout.parentNode.insertBefore(btn, checkout);
-}
-
-// Scan page for prices
-var SELECTORS = [
-  '.price-item--regular',
-  '.price-item--sale',
-  '.price__regular .price-item',
-  '.price__sale .price-item--sale',
-  '.product-price__price',
-];
-
-function scan() {
-  var count = 0;
-  SELECTORS.forEach(function(sel) {
-    try {
-      document.querySelectorAll(sel).forEach(function(el) {
-        addBadge(el);
-        count++;
-      });
-    } catch(e) {}
-  });
-  log('Scanned ' + count + ' elements');
-  if (window.location.pathname.includes('/cart')) addCartButton();
-}
-
-// Fetch BTC rate
-function fetchRate(cb) {
-  fetch(API + '/api/rate?currency=' + CURRENCY)
-    .then(function(r) { return r.json(); })
-    .then(function(d) {
-      if (d && d.rate) { rate = d.rate; log('Rate: ' + rate + ' ' + CURRENCY); cb(); }
-      else { log('No rate received'); }
-    })
-    .catch(function(e) { log('Rate fetch error: ' + e); });
-}
-
-// Init
-function init() {
-  log('Widget starting — currency: ' + CURRENCY + ', denom: ' + DENOM);
-  addStyles();
-  fetchRate(function() {
-    scan();
-    // Watch for dynamic content
-    if (window.MutationObserver) {
-      var obs = new MutationObserver(function(muts) {
-        var changed = muts.some(function(m) { return m.addedNodes.length > 0; });
-        if (changed) setTimeout(scan, 500);
-      });
-      obs.observe(document.body, { childList: true, subtree: true });
-    }
-  });
-}
-
-// Expose global API
-window.SatunoWidget = {
-  version: '1.0.0',
-  refresh: function() { document.querySelectorAll('.'+BADGE_CLASS).forEach(function(b){b.remove();}); document.querySelectorAll('[data-stn-done]').forEach(function(el){delete el.dataset.stnDone;}); scan(); },
-  config: function() { return { currency: CURRENCY, denom: DENOM, rate: rate }; }
-};
-
-if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', init);
-} else {
-  init();
-}
-
-})();
-  `);
 });
 
 // Webhook — uninstalled — uninstalled
