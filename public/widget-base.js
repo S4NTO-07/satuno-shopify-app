@@ -231,6 +231,14 @@ window.SatunoWidget = {
     document.querySelectorAll('[data-stn-done]').forEach(function(el) { delete el.dataset.stnDone; });
     scan();
   },
+  reloadSettings: function(cb) {
+    loadSettings(function() {
+      document.querySelectorAll('.' + BADGE).forEach(function(b) { b.remove(); });
+      document.querySelectorAll('[data-stn-done]').forEach(function(el) { delete el.dataset.stnDone; });
+      scan();
+      if (cb) cb(CONFIG);
+    });
+  },
   config: function() { return CONFIG; }
 };
 
