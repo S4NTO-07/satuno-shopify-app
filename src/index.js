@@ -32,9 +32,26 @@ const APP_URL            = (process.env.APP_URL || 'http://localhost:3001').repl
 const SESSION_SECRET     = process.env.SESSION_SECRET     || 'satuno-dev-secret';
 const SATUNO_API_URL     = process.env.SATUNO_API_URL     || 'https://satuno-api-production.up.railway.app';
 
-// ── In-memory merchant store ──────────────────────────────────────
-// Replace with a database (Postgres/Redis) when you have 10+ merchants
-const merchants = {};
+// ── File-based merchant store (survives redeploys) ───────────────
+const fs_store  = require('fs');
+const STORE_PATH = process.env.STORE_PATH || '/tmp/satuno-merchants.json';
+
+function loadMerchants() {
+  try {
+    if (fs_store.existsSync(STORE_PATH)) {
+      return JSON.parse(fs_store.readFileSync(STORE_PATH, 'utf8'));
+    }
+  } catch(e) { console.error('Load merchants error:', e); }
+  return {};
+}
+
+function saveMerchants(data) {
+  try { fs_store.writeFileSync(STORE_PATH, JSON.stringify(data, null, 2)); }
+  catch(e) { console.error('Save merchants error:', e); }
+}
+
+const merchants = loadMerchants();
+console.log(`Loaded ${Object.keys(merchants).length} merchants from store`);
 
 // ── Middleware ────────────────────────────────────────────────────
 app.use(cors());
@@ -173,6 +190,7 @@ app.get('/auth/callback', async (req, res) => {
       settings:    defaultSettings(shopInfo.currency),
     };
 
+    saveMerchants(merchants);
     req.session.shop        = shop;
     req.session.accessToken = access_token;
 
@@ -460,7 +478,8 @@ app.post('/api/settings', (req, res) => {
   const { shop, settings } = req.body;
   if (!shop || !merchants[shop]) return res.status(404).json({ success: false });
   merchants[shop].settings = { ...merchants[shop].settings, ...settings };
-  console.log(`Settings updated: ${shop}`);
+  saveMerchants(merchants);
+  console.log(`Settings updated: ${shop}`, merchants[shop].settings);
   res.json({ success: true });
 });
 

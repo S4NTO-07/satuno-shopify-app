@@ -33,6 +33,7 @@ function loadSettings(cb) {
       if (d.lightning)    CONFIG.lightning    = d.lightning;
       CONFIG.showCheckout = !!d.showCheckout;
       CONFIG.plan         = d.plan || 'free';
+      log('Settings: currency=' + CONFIG.currency + ' denom=' + CONFIG.denomination);
       cb();
     })
     .catch(function() { cb(); });
