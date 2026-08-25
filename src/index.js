@@ -363,14 +363,6 @@ body{background:var(--bg);color:var(--text);font-family:'Space Grotesk',system-u
         </select>
       </div>
       <div class="row">
-        <div><div class="rl">Display denomination</div><div class="rs">How to show Bitcoin prices</div></div>
-        <select class="sel" name="denomination" id="denomSelect">
-          <option value="sats" ${s.denomination==='sats'||!s.denomination?'selected':''}>⚡ Sats</option>
-          <option value="btc" ${s.denomination==='btc'?'selected':''}>₿ BTC</option>
-          <option value="both" ${s.denomination==='both'?'selected':''}>+ Both</option>
-        </select>
-      </div>
-      <div class="row">
         <div><div class="rl">Show sats badge</div><div class="rs">Display sats price next to every product</div></div>
         <label class="tog"><input type="checkbox" name="showBadge" ${s.showBadge?'checked':''}><span class="tog-t"></span></label>
       </div>
@@ -451,7 +443,6 @@ var rateCache = {};
 
 function loadPreview() {
   var cur   = document.getElementById('currencySelect').value;
-  var denom = document.getElementById('denomSelect') ? document.getElementById('denomSelect').value : 'sats';
   fetch('/api/rate?currency=' + cur)
     .then(function(r){ return r.json(); })
     .then(function(d) {
@@ -471,7 +462,6 @@ function loadPreview() {
 }
 
 document.getElementById('currencySelect').addEventListener('change', loadPreview);
-if(document.getElementById('denomSelect')) document.getElementById('denomSelect').addEventListener('change', loadPreview);
 loadPreview();
 
 document.getElementById('settingsForm').addEventListener('submit', function(e) {
@@ -484,7 +474,6 @@ document.getElementById('settingsForm').addEventListener('submit', function(e) {
       shop: '${shop}',
       settings: {
         currency:     fd.get('currency'),
-        denomination: fd.get('denomination') || 'sats',
         lightning:    fd.get('lightning') || '',
         showBadge:    fd.get('showBadge') === 'on',
         showCheckout: fd.get('showCheckout') === 'on',

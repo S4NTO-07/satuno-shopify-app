@@ -35,7 +35,7 @@ function addStyles() {
     '.stn-badge{display:inline-flex;align-items:center;background:rgba(255,138,0,.1);border:1px solid rgba(255,138,0,.3);border-radius:4px;padding:2px 8px;font-size:11px;font-weight:600;color:' + COLOR + ';margin-left:6px;white-space:nowrap;vertical-align:middle;font-family:system-ui,sans-serif;line-height:1.6}' +
 
     // Visitor toggle pill
-    '#stn-toggle{position:fixed;bottom:20px;right:20px;z-index:999999;display:flex;align-items:center;gap:6px;background:#1a1a1a;border:1px solid #333;border-radius:30px;padding:6px 10px;font-family:system-ui,sans-serif;box-shadow:0 2px 12px rgba(0,0,0,.3)}' +
+    '#stn-toggle{position:fixed;bottom:80px;right:20px;z-index:999990;display:flex;align-items:center;gap:6px;background:#1a1a1a;border:1px solid #333;border-radius:30px;padding:6px 10px;font-family:system-ui,sans-serif;box-shadow:0 2px 12px rgba(0,0,0,.3)}' +
     '#stn-toggle .stn-lbl{font-size:11px;font-weight:700;color:#FF8A00;margin-right:2px}' +
     '#stn-toggle button{background:none;border:1px solid #444;color:#888;border-radius:20px;padding:3px 9px;font-size:11px;font-weight:600;cursor:pointer;font-family:inherit;transition:all .15s}' +
     '#stn-toggle button.active{background:#FF8A00;color:#000;border-color:#FF8A00}' +
