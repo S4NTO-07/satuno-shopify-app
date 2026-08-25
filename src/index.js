@@ -382,10 +382,10 @@ body{background:var(--bg);color:var(--text);font-family:'Space Grotesk',system-u
       </div>
       <div class="row">
         <div>
-          <div class="rl">Lightning button at checkout${!isPro?'<span class="lock">🔒 Pro</span>':''}</div>
+          <div class="rl">Lightning button at checkout</div>
           <div class="rs">Show "Pay with Lightning" on cart page</div>
         </div>
-        <label class="tog"><input type="checkbox" name="showCheckout" ${s.showCheckout?'checked':''} ${!isPro?'disabled':''}><span class="tog-t"></span></label>
+        <label class="tog"><input type="checkbox" name="showCheckout" ${s.showCheckout?'checked':''} ><span class="tog-t"></span></label>
       </div>
     </div>
   </div>
