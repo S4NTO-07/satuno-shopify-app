@@ -31,6 +31,7 @@ const SHOPIFY_SCOPES     = process.env.SHOPIFY_SCOPES     || 'read_products,read
 const APP_URL            = (process.env.APP_URL || 'http://localhost:3001').replace('http://', 'https://');
 const SESSION_SECRET     = process.env.SESSION_SECRET     || 'satuno-dev-secret';
 const SATUNO_API_URL     = process.env.SATUNO_API_URL     || 'https://satuno-api-production.up.railway.app';
+const ADMIN_KEY          = process.env.ADMIN_KEY          || 'satuno_admin_2025';
 
 // ── Merchant store with Railway Volume persistence ────────────────
 const fs_store  = require('fs');
@@ -696,6 +697,88 @@ app.post('/webhooks/app/uninstalled', (req, res) => {
     console.log('Uninstalled:', shop);
   }
   res.sendStatus(200);
+});
+
+// ── Admin endpoints ──────────────────────────────────────────────
+
+function validateAdmin(req, res) {
+  if (req.query.key !== ADMIN_KEY) {
+    res.status(403).json({ error: 'Invalid admin key' });
+    return false;
+  }
+  const shop = req.query.shop;
+  if (!shop) { res.status(400).json({ error: 'Missing shop' }); return false; }
+  const fresh = loadMerchants();
+  if (!fresh[shop] && !merchants[shop]) {
+    res.status(404).json({ error: 'Shop not found', shops: Object.keys(merchants) });
+    return false;
+  }
+  if (fresh[shop]) merchants[shop] = fresh[shop];
+  return shop;
+}
+
+async function updateScriptTag(shop, token, settings, checkout) {
+  try {
+    const newUrl = APP_URL + '/widget.js?shop=' + shop +
+      '&currency=' + (settings.currency || 'MXN') +
+      '&color=' + encodeURIComponent(settings.badgeColor || '#FF8A00') +
+      '&lightning=' + encodeURIComponent(settings.lightning || '') +
+      '&checkout=' + (checkout ? 'true' : 'false');
+    const stList = await fetch(`https://${shop}/admin/api/2025-10/script_tags.json`, {
+      headers: { 'X-Shopify-Access-Token': token }
+    }).then(r => r.json());
+    for (const tag of (stList.script_tags || []).filter(t => t.src.includes('satuno'))) {
+      await fetch(`https://${shop}/admin/api/2025-10/script_tags/${tag.id}.json`, {
+        method: 'DELETE', headers: { 'X-Shopify-Access-Token': token }
+      });
+    }
+    await fetch(`https://${shop}/admin/api/2025-10/script_tags.json`, {
+      method: 'POST',
+      headers: { 'X-Shopify-Access-Token': token, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ script_tag: { event: 'onload', src: newUrl, display_scope: 'online_store' } })
+    });
+    console.log('ScriptTag updated:', newUrl);
+  } catch(e) { console.error('ScriptTag error:', e.message); }
+}
+
+// Upgrade to Pro
+app.get('/admin/upgrade', async (req, res) => {
+  const shop = validateAdmin(req, res);
+  if (!shop) return;
+  merchants[shop].settings.plan = 'pro';
+  merchants[shop].settings.showCheckout = true;
+  saveMerchants(merchants);
+  const token = merchants[shop].accessToken;
+  await saveToMetafields(shop, token, merchants[shop].settings);
+  await updateScriptTag(shop, token, merchants[shop].settings, true);
+  console.log('Upgraded to Pro:', shop);
+  res.json({ success: true, shop, plan: 'pro', message: 'Lightning checkout active', settings: merchants[shop].settings });
+});
+
+// Downgrade to Free
+app.get('/admin/downgrade', async (req, res) => {
+  const shop = validateAdmin(req, res);
+  if (!shop) return;
+  merchants[shop].settings.plan = 'free';
+  merchants[shop].settings.showCheckout = false;
+  saveMerchants(merchants);
+  const token = merchants[shop].accessToken;
+  await saveToMetafields(shop, token, merchants[shop].settings);
+  await updateScriptTag(shop, token, merchants[shop].settings, false);
+  console.log('Downgraded to Free:', shop);
+  res.json({ success: true, shop, plan: 'free', message: 'Lightning checkout disabled', settings: merchants[shop].settings });
+});
+
+// List all merchants
+app.get('/admin/merchants', (req, res) => {
+  if (req.query.key !== ADMIN_KEY) return res.status(403).json({ error: 'Invalid key' });
+  const fresh = loadMerchants();
+  const list = Object.entries(fresh).map(([shop, m]) => ({
+    shop, name: m.name, plan: m.settings.plan,
+    currency: m.settings.currency, lightning: m.settings.lightning,
+    showCheckout: m.settings.showCheckout, installedAt: m.installedAt
+  }));
+  res.json({ total: list.length, merchants: list });
 });
 
 // Cleanup — remove all ScriptTags for a shop
