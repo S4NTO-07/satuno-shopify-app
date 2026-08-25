@@ -2,18 +2,27 @@
 (function(){
 'use strict';
 
-// CONFIG — injected by server via query params
+// CONFIG — read from script src URL params (reliable, no server needed)
 var script = document.currentScript || document.querySelector('script[src*="widget.js"]');
-var API = script ? (script.getAttribute('data-api') || 'https://satuno-shopify-app-production.up.railway.app') : 'https://satuno-shopify-app-production.up.railway.app';
-var SHOP = script ? script.getAttribute('data-shop') : '';
+var API = 'https://satuno-shopify-app-production.up.railway.app';
+
+function getParam(src, key, def) {
+  try {
+    var url = new URL(src);
+    return url.searchParams.get(key) || def;
+  } catch(e) { return def; }
+}
+
+var src = script ? script.src : '';
+var SHOP = getParam(src, 'shop', '');
 
 var CONFIG = {
-  currency:    'USD',
-  denomination:'sats',
-  color:       '#FF8A00',
-  lightning:   '',
-  showCheckout: false,
-  plan:        'free',
+  currency:    getParam(src, 'currency',    'USD'),
+  denomination:getParam(src, 'denomination','sats'),
+  color:       getParam(src, 'color',       '#FF8A00'),
+  lightning:   getParam(src, 'lightning',   ''),
+  showCheckout:getParam(src, 'checkout',    'false') === 'true',
+  plan:        getParam(src, 'plan',        'free'),
 };
 
 var rate = 0;
@@ -207,19 +216,17 @@ function scan() {
 
 // Init
 function init() {
-  log('Widget starting — shop: ' + SHOP);
+  log('Widget starting — currency: ' + CONFIG.currency + ', denom: ' + CONFIG.denomination);
   addStyles();
-  loadSettings(function() {
-    log('Settings loaded — currency: ' + CONFIG.currency + ', denom: ' + CONFIG.denomination);
-    fetchRate(function() {
-      scan();
-      if (window.MutationObserver) {
-        new MutationObserver(function(muts) {
-          var changed = muts.some(function(m) { return m.addedNodes.length > 0; });
-          if (changed) setTimeout(scan, 500);
-        }).observe(document.body, { childList: true, subtree: true });
-      }
-    });
+  fetchRate(function() {
+    log('Rate loaded, scanning...');
+    scan();
+    if (window.MutationObserver) {
+      new MutationObserver(function(muts) {
+        var changed = muts.some(function(m) { return m.addedNodes.length > 0; });
+        if (changed) setTimeout(scan, 500);
+      }).observe(document.body, { childList: true, subtree: true });
+    }
   });
 }
 

@@ -203,7 +203,13 @@ app.get('/auth/callback', async (req, res) => {
 
     // Register ScriptTag — Shopify injects widget automatically
     try {
-      const widgetUrl = APP_URL + '/widget.js?shop=' + shop;
+      const s = merchants[shop].settings;
+      const widgetUrl = APP_URL + '/widget.js?shop=' + shop +
+        '&currency=' + (s.currency || 'MXN') +
+        '&denomination=' + (s.denomination || 'sats') +
+        '&color=' + encodeURIComponent(s.badgeColor || '#FF8A00') +
+        '&lightning=' + encodeURIComponent(s.lightning || '') +
+        '&checkout=' + (s.showCheckout ? 'true' : 'false');
       const stRes = await fetch(`https://${shop}/admin/api/2025-10/script_tags.json`, {
         method: 'POST',
         headers: {
@@ -515,23 +521,34 @@ app.post('/api/settings', async (req, res) => {
   saveMerchants(merchants);
   console.log('Settings updated:', shop, merchants[shop].settings);
 
-  // Save to Shopify metafields for persistence
+  // Update ScriptTag with new settings in URL
   try {
     const token = merchants[shop].accessToken;
-    await fetch(`https://${shop}/admin/api/2025-10/metafields.json`, {
-      method: 'POST',
-      headers: { 'X-Shopify-Access-Token': token, 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        metafield: {
-          namespace: 'satuno',
-          key: 'settings',
-          value: JSON.stringify(merchants[shop].settings),
-          type: 'json'
-        }
-      })
+    const s2 = merchants[shop].settings;
+    const newUrl = APP_URL + '/widget.js?shop=' + shop +
+      '&currency=' + (s2.currency || 'MXN') +
+      '&denomination=' + (s2.denomination || 'sats') +
+      '&color=' + encodeURIComponent(s2.badgeColor || '#FF8A00') +
+      '&lightning=' + encodeURIComponent(s2.lightning || '') +
+      '&checkout=' + (s2.showCheckout ? 'true' : 'false');
+
+    // Get existing script tags
+    const stListRes = await fetch(`https://${shop}/admin/api/2025-10/script_tags.json`, {
+      headers: { 'X-Shopify-Access-Token': token }
     });
-    console.log('Settings saved to Shopify metafields');
-  } catch(e) { console.error('Metafield save error:', e.message); }
+    const stList = await stListRes.json();
+    const existing = stList.script_tags && stList.script_tags.find(st => st.src.includes('satuno'));
+
+    if (existing) {
+      // Update existing ScriptTag
+      await fetch(`https://${shop}/admin/api/2025-10/script_tags/${existing.id}.json`, {
+        method: 'PUT',
+        headers: { 'X-Shopify-Access-Token': token, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ script_tag: { id: existing.id, src: newUrl } })
+      });
+      console.log('ScriptTag updated:', newUrl);
+    }
+  } catch(e) { console.error('ScriptTag update error:', e.message); }
 
   res.json({ success: true, settings: merchants[shop].settings });
 });
