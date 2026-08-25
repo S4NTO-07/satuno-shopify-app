@@ -101,6 +101,67 @@ async function getShopInfo(shop, token) {
   return res.json();
 }
 
+// Save settings to Shopify Metafields
+async function saveToMetafields(shop, token, settings) {
+  try {
+    const res = await fetch(`https://${shop}/admin/api/2025-10/metafields.json`, {
+      method: 'POST',
+      headers: { 'X-Shopify-Access-Token': token, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        metafield: {
+          namespace: 'satuno_app',
+          key: 'merchant_settings',
+          value: JSON.stringify(settings),
+          type: 'json'
+        }
+      })
+    });
+    const data = await res.json();
+    if (data.metafield) {
+      console.log('✅ Settings saved to Shopify Metafields');
+      return true;
+    }
+    // If already exists, update it
+    if (data.errors) {
+      const listRes = await fetch(`https://${shop}/admin/api/2025-10/metafields.json?namespace=satuno_app&key=merchant_settings`, {
+        headers: { 'X-Shopify-Access-Token': token }
+      });
+      const listData = await listRes.json();
+      const existing = listData.metafields && listData.metafields[0];
+      if (existing) {
+        const upRes = await fetch(`https://${shop}/admin/api/2025-10/metafields/${existing.id}.json`, {
+          method: 'PUT',
+          headers: { 'X-Shopify-Access-Token': token, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ metafield: { id: existing.id, value: JSON.stringify(settings), type: 'json' } })
+        });
+        const upData = await upRes.json();
+        if (upData.metafield) {
+          console.log('✅ Settings updated in Shopify Metafields');
+          return true;
+        }
+      }
+    }
+  } catch(e) { console.error('Metafield save error:', e.message); }
+  return false;
+}
+
+// Load settings from Shopify Metafields
+async function loadFromMetafields(shop, token) {
+  try {
+    const res = await fetch(`https://${shop}/admin/api/2025-10/metafields.json?namespace=satuno_app&key=merchant_settings`, {
+      headers: { 'X-Shopify-Access-Token': token }
+    });
+    const data = await res.json();
+    const mf = data.metafields && data.metafields[0];
+    if (mf && mf.value) {
+      const settings = JSON.parse(mf.value);
+      console.log('✅ Settings loaded from Shopify Metafields:', settings);
+      return settings;
+    }
+  } catch(e) { console.error('Metafield load error:', e.message); }
+  return null;
+}
+
 async function getBTCRate(currency) {
   try {
     const res  = await fetch(`${SATUNO_API_URL}/v1/rates?currency=${currency}`);
@@ -244,11 +305,21 @@ app.get('/auth/callback', async (req, res) => {
 });
 
 // Admin dashboard
-app.get('/app', (req, res) => {
+app.get('/app', async (req, res) => {
   const shop     = req.query.shop || req.session.shop;
   const merchant = merchants[shop];
 
   if (!merchant) return res.redirect(`/auth?shop=${shop || ''}`);
+
+  // Try to load fresh settings from Shopify Metafields
+  try {
+    const mfSettings = await loadFromMetafields(shop, merchant.accessToken);
+    if (mfSettings) {
+      merchant.settings = { ...merchant.settings, ...mfSettings };
+      merchants[shop] = merchant;
+      saveMerchants(merchants);
+    }
+  } catch(e) { console.error('Dashboard metafield load error:', e.message); }
 
   const s     = merchant.settings;
   const isPro = s.plan === 'pro';
@@ -382,10 +453,10 @@ body{background:var(--bg);color:var(--text);font-family:'Space Grotesk',system-u
       </div>
       <div class="row">
         <div>
-          <div class="rl">Lightning button at checkout</div>
+          <div class="rl">Lightning button at checkout <span class="lock">⚡ Pro</span></div>
           <div class="rs">Show "Pay with Lightning" on cart page</div>
         </div>
-        <label class="tog"><input type="checkbox" name="showCheckout" ${s.showCheckout?'checked':''} ><span class="tog-t"></span></label>
+        <label class="tog"><input type="checkbox" name="showCheckout" ${s.showCheckout?'checked':''} ${s.plan!=='pro'?'disabled':''} ><span class="tog-t"></span></label>
       </div>
     </div>
   </div>
@@ -414,10 +485,10 @@ ${!isPro ? `
   <div class="pro-hdr">
     <div>
       <div class="pro-name"><span class="pro-lbl">PRO</span>SATUNO Pro</div>
-      <div class="pro-sub">Unlock Lightning payments + analytics</div>
+      <div class="pro-sub">Accept Bitcoin via Lightning — $9 USD/mo</div>
     </div>
-    <a href="mailto:satunohq@proton.me?subject=SATUNO Pro — ${shop}" class="upgrade-btn">
-      Upgrade — $9/mo
+    <a href="mailto:satunohq@proton.me?subject=SATUNO Shopify Pro — ${shop}" class="upgrade-btn">
+      Upgrade — $9 USD/mo
     </a>
   </div>
   <div class="pro-feats">
@@ -508,6 +579,9 @@ app.post('/api/settings', async (req, res) => {
   if (!shop || !merchants[shop]) return res.status(404).json({ success: false });
   merchants[shop].settings = { ...merchants[shop].settings, ...settings };
   saveMerchants(merchants);
+  // Save to Shopify Metafields for permanent persistence
+  const token = merchants[shop].accessToken;
+  await saveToMetafields(shop, token, merchants[shop].settings);
   console.log('Settings updated:', shop, merchants[shop].settings);
 
   // Update ScriptTag with new settings in URL
@@ -554,36 +628,33 @@ app.get('/api/settings', async (req, res) => {
   const { shop } = req.query;
   if (!shop) return res.status(400).json({ error: 'Missing shop' });
 
-  // Try Shopify metafields first (most reliable)
-  const merchant = merchants[shop] || loadMerchants()[shop];
-  if (merchant && merchant.accessToken) {
-    try {
-      const mfRes = await fetch(
-        `https://${shop}/admin/api/2025-10/metafields.json?namespace=satuno&key=settings`,
-        { headers: { 'X-Shopify-Access-Token': merchant.accessToken } }
-      );
-      const mfData = await mfRes.json();
-      const mf = mfData.metafields && mfData.metafields[0];
-      if (mf && mf.value) {
-        const s = JSON.parse(mf.value);
-        console.log('Settings from metafields:', shop, s.denomination);
-        return res.json({
-          currency:     s.currency     || 'MXN',
-          denomination: s.denomination || 'sats',
-          lightning:    s.lightning    || '',
-          showBadge:    s.showBadge    !== false,
-          showCheckout: !!s.showCheckout,
-          badgeColor:   s.badgeColor   || '#FF8A00',
-          plan:         s.plan         || 'free'
-        });
-      }
-    } catch(e) { console.error('Metafield read error:', e.message); }
+  // Load fresh from file
+  const fresh = loadMerchants();
+  const merchant = fresh[shop] || merchants[shop];
+
+  if (!merchant) return res.status(404).json({ error: 'Not found' });
+
+  // Try Shopify Metafields first — most reliable
+  if (merchant.accessToken) {
+    const mfSettings = await loadFromMetafields(shop, merchant.accessToken);
+    if (mfSettings) {
+      // Sync back to memory and file
+      merchants[shop] = { ...merchant, settings: { ...merchant.settings, ...mfSettings } };
+      saveMerchants(merchants);
+      return res.json({
+        currency:     mfSettings.currency     || 'MXN',
+        denomination: mfSettings.denomination || 'sats',
+        lightning:    mfSettings.lightning    || '',
+        showBadge:    mfSettings.showBadge    !== false,
+        showCheckout: !!mfSettings.showCheckout,
+        badgeColor:   mfSettings.badgeColor   || '#FF8A00',
+        plan:         mfSettings.plan         || 'free'
+      });
+    }
   }
 
   // Fallback to file
-  const fresh = loadMerchants();
-  if (!fresh[shop]) return res.status(404).json({ error: 'Not found' });
-  const s = fresh[shop].settings;
+  const s = merchant.settings || {};
   res.json({
     currency:     s.currency     || 'MXN',
     denomination: s.denomination || 'sats',
