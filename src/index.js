@@ -521,22 +521,29 @@ app.post('/api/settings', async (req, res) => {
       '&lightning=' + encodeURIComponent(s2.lightning || '') +
       '&checkout=' + (s2.showCheckout ? 'true' : 'false');
 
-    // Get existing script tags
+    // Delete ALL existing SATUNO script tags
     const stListRes = await fetch(`https://${shop}/admin/api/2025-10/script_tags.json`, {
       headers: { 'X-Shopify-Access-Token': token }
     });
     const stList = await stListRes.json();
-    const existing = stList.script_tags && stList.script_tags.find(st => st.src.includes('satuno'));
-
-    if (existing) {
-      // Update existing ScriptTag
-      await fetch(`https://${shop}/admin/api/2025-10/script_tags/${existing.id}.json`, {
-        method: 'PUT',
-        headers: { 'X-Shopify-Access-Token': token, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ script_tag: { id: existing.id, src: newUrl } })
+    const allTags = stList.script_tags || [];
+    const satunoTags = allTags.filter(t => t.src.includes('satuno'));
+    for (const tag of satunoTags) {
+      await fetch(`https://${shop}/admin/api/2025-10/script_tags/${tag.id}.json`, {
+        method: 'DELETE',
+        headers: { 'X-Shopify-Access-Token': token }
       });
-      console.log('ScriptTag updated:', newUrl);
     }
+    console.log('Deleted', satunoTags.length, 'old ScriptTags');
+
+    // Create one clean ScriptTag with new settings
+    const createRes = await fetch(`https://${shop}/admin/api/2025-10/script_tags.json`, {
+      method: 'POST',
+      headers: { 'X-Shopify-Access-Token': token, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ script_tag: { event: 'onload', src: newUrl, display_scope: 'online_store' } })
+    });
+    const created = await createRes.json();
+    console.log('ScriptTag created:', newUrl, 'id:', created.script_tag?.id);
   } catch(e) { console.error('ScriptTag update error:', e.message); }
 
   res.json({ success: true, settings: merchants[shop].settings });
@@ -618,6 +625,32 @@ app.post('/webhooks/app/uninstalled', (req, res) => {
     console.log('Uninstalled:', shop);
   }
   res.sendStatus(200);
+});
+
+// Cleanup — remove all ScriptTags for a shop
+app.get('/cleanup', async (req, res) => {
+  const shop = req.query.shop;
+  if (!shop || !merchants[shop]) return res.status(404).json({ error: 'Shop not found' });
+  const token = merchants[shop].accessToken;
+  try {
+    const listRes = await fetch(`https://${shop}/admin/api/2025-10/script_tags.json`, {
+      headers: { 'X-Shopify-Access-Token': token }
+    });
+    const list = await listRes.json();
+    const tags = list.script_tags || [];
+    const satuno = tags.filter(t => t.src.includes('satuno'));
+    console.log('Found', satuno.length, 'SATUNO script tags');
+    for (const tag of satuno) {
+      await fetch(`https://${shop}/admin/api/2025-10/script_tags/${tag.id}.json`, {
+        method: 'DELETE',
+        headers: { 'X-Shopify-Access-Token': token }
+      });
+      console.log('Deleted script tag:', tag.id, tag.src);
+    }
+    res.json({ success: true, deleted: satuno.length, tags: satuno.map(t => t.src) });
+  } catch(e) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
 // Health + debug
