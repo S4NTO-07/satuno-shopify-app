@@ -526,9 +526,26 @@ app.post('/webhooks/app/uninstalled', (req, res) => {
   res.sendStatus(200);
 });
 
-// Health
+// Health + debug
 app.get('/health', (req, res) => {
-  res.json({ status: 'ok', merchants: Object.keys(merchants).length, ts: new Date().toISOString() });
+  const fs2 = require('fs');
+  res.json({
+    status: 'ok',
+    merchants: Object.keys(merchants).length,
+    merchant_list: Object.keys(merchants),
+    store_path: STORE_PATH,
+    store_exists: fs2.existsSync(STORE_PATH),
+    data_dir_exists: fs2.existsSync('/data'),
+    ts: new Date().toISOString()
+  });
+});
+
+// Debug — get merchant settings directly
+app.get('/debug/merchant', (req, res) => {
+  const shop = req.query.shop;
+  if (!shop) return res.json({ error: 'missing shop' });
+  const m = merchants[shop];
+  res.json({ found: !!m, settings: m ? m.settings : null });
 });
 
 // 404
