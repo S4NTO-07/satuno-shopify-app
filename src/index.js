@@ -222,7 +222,8 @@ app.get('/auth', (req, res) => {
     `client_id=${SHOPIFY_API_KEY}` +
     `&scope=${SHOPIFY_SCOPES}` +
     `&redirect_uri=${APP_URL}/auth/callback` +
-    `&state=${nonce}`;
+    `&state=${nonce}` +
+    `&grant_options[]=per-user`;
 
   res.redirect(authUrl);
 });
