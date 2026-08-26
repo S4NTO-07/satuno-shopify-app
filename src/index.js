@@ -296,6 +296,25 @@ app.get('/auth/callback', async (req, res) => {
       console.error('ScriptTag error:', e.message);
     }
 
+    // Register compliance webhooks required by Shopify
+    try {
+      const webhooks = [
+        { topic: 'customers/data_request', address: APP_URL + '/webhooks/customers/data_request' },
+        { topic: 'customers/redact',       address: APP_URL + '/webhooks/customers/redact' },
+        { topic: 'shop/redact',            address: APP_URL + '/webhooks/shop/redact' },
+        { topic: 'app/uninstalled',        address: APP_URL + '/webhooks/app/uninstalled' },
+      ];
+      for (const wh of webhooks) {
+        const whRes = await fetch(`https://${shop}/admin/api/2025-10/webhooks.json`, {
+          method: 'POST',
+          headers: { 'X-Shopify-Access-Token': access_token, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ webhook: { topic: wh.topic, address: wh.address, format: 'json' } })
+        });
+        const whData = await whRes.json();
+        console.log('Webhook registered:', wh.topic, whData.webhook?.id || whData.errors);
+      }
+    } catch(e) { console.error('Webhook registration error:', e.message); }
+
     console.log(`✅ Installed: ${shop} (${shopInfo.name})`);
     res.redirect(`/app?shop=${shop}`);
 
@@ -781,6 +800,32 @@ async function updateScriptTag(shop, token, settings, checkout) {
     console.log('ScriptTag updated:', newUrl);
   } catch(e) { console.error('ScriptTag error:', e.message); }
 }
+
+// Register webhooks manually
+app.get('/admin/register-webhooks', async (req, res) => {
+  const shop = validateAdmin(req, res);
+  if (!shop) return;
+  const token = merchants[shop].accessToken;
+  const results = [];
+  const webhooks = [
+    { topic: 'customers/data_request', address: APP_URL + '/webhooks/customers/data_request' },
+    { topic: 'customers/redact',       address: APP_URL + '/webhooks/customers/redact' },
+    { topic: 'shop/redact',            address: APP_URL + '/webhooks/shop/redact' },
+    { topic: 'app/uninstalled',        address: APP_URL + '/webhooks/app/uninstalled' },
+  ];
+  for (const wh of webhooks) {
+    try {
+      const r = await fetch(`https://${shop}/admin/api/2025-10/webhooks.json`, {
+        method: 'POST',
+        headers: { 'X-Shopify-Access-Token': token, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ webhook: { topic: wh.topic, address: wh.address, format: 'json' } })
+      });
+      const d = await r.json();
+      results.push({ topic: wh.topic, id: d.webhook?.id, error: d.errors });
+    } catch(e) { results.push({ topic: wh.topic, error: e.message }); }
+  }
+  res.json({ success: true, webhooks: results });
+});
 
 // Upgrade to Pro
 app.get('/admin/upgrade', async (req, res) => {
