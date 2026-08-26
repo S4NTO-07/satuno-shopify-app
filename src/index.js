@@ -711,33 +711,39 @@ app.get('/widget.js', (req, res) => {
 // Webhook — uninstalled — uninstalled
 // ── Compliance Webhooks (required by Shopify) ────────────────────
 
-function verifyWebhookHmac(req) {
-  const hmac = req.headers['x-shopify-hmac-sha256'];
-  if (!hmac || !SHOPIFY_API_SECRET) return true;
-  const hash = crypto.createHmac('sha256', SHOPIFY_API_SECRET).update(req.body).digest('base64');
-  return hash === hmac;
+function verifyWebhookHmac(rawBody, hmac) {
+  if (!hmac || !SHOPIFY_API_SECRET) return false;
+  try {
+    const hash = crypto.createHmac('sha256', SHOPIFY_API_SECRET)
+      .update(rawBody, 'utf8')
+      .digest('base64');
+    return hash === hmac;
+  } catch(e) { return false; }
 }
 
-app.post('/webhooks/customers/data_request', express.raw({type: '*/*'}), (req, res) => {
-  if (!verifyWebhookHmac(req)) return res.sendStatus(401);
+app.post('/webhooks/customers/data_request', (req, res) => {
+  const hmac = req.headers['x-shopify-hmac-sha256'];
+  const rawBody = JSON.stringify(req.body);
+  if (!verifyWebhookHmac(rawBody, hmac)) return res.sendStatus(401);
   console.log('Customer data request webhook');
   res.sendStatus(200);
 });
 
-app.post('/webhooks/customers/redact', express.raw({type: '*/*'}), (req, res) => {
-  if (!verifyWebhookHmac(req)) return res.sendStatus(401);
+app.post('/webhooks/customers/redact', (req, res) => {
+  const hmac = req.headers['x-shopify-hmac-sha256'];
+  const rawBody = JSON.stringify(req.body);
+  if (!verifyWebhookHmac(rawBody, hmac)) return res.sendStatus(401);
   console.log('Customer redact webhook');
   res.sendStatus(200);
 });
 
-app.post('/webhooks/shop/redact', express.raw({type: '*/*'}), (req, res) => {
-  if (!verifyWebhookHmac(req)) return res.sendStatus(401);
-  try {
-    const body = JSON.parse(req.body);
-    const shop = body.myshopify_domain;
-    if (shop && merchants[shop]) { delete merchants[shop]; saveMerchants(merchants); }
-    console.log('Shop redact:', shop);
-  } catch(e) {}
+app.post('/webhooks/shop/redact', (req, res) => {
+  const hmac = req.headers['x-shopify-hmac-sha256'];
+  const rawBody = JSON.stringify(req.body);
+  if (!verifyWebhookHmac(rawBody, hmac)) return res.sendStatus(401);
+  const shop = req.body && req.body.myshopify_domain;
+  if (shop && merchants[shop]) { delete merchants[shop]; saveMerchants(merchants); }
+  console.log('Shop redact:', shop);
   res.sendStatus(200);
 });
 
