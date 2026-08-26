@@ -711,6 +711,28 @@ app.get('/widget.js', (req, res) => {
 // Webhook — uninstalled — uninstalled
 // ── Compliance Webhooks (required by Shopify) ────────────────────
 
+// Generic /webhooks endpoint — Shopify sends compliance webhooks here
+app.post('/webhooks', (req, res) => {
+  const hmac  = req.headers['x-shopify-hmac-sha256'];
+  const topic = req.headers['x-shopify-topic'];
+  const rawBody = JSON.stringify(req.body);
+
+  if (!verifyWebhookHmac(rawBody, hmac)) return res.sendStatus(401);
+
+  console.log('Webhook received:', topic);
+
+  if (topic === 'shop/redact') {
+    const shop = req.body && req.body.myshopify_domain;
+    if (shop && merchants[shop]) { delete merchants[shop]; saveMerchants(merchants); }
+  }
+  if (topic === 'app/uninstalled') {
+    const shop = req.headers['x-shopify-shop-domain'];
+    if (shop && merchants[shop]) { delete merchants[shop]; saveMerchants(merchants); }
+  }
+
+  res.sendStatus(200);
+});
+
 function verifyWebhookHmac(rawBody, hmac) {
   if (!hmac || !SHOPIFY_API_SECRET) return false;
   try {
