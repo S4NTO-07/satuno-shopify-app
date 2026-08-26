@@ -814,6 +814,18 @@ app.get('/admin/register-webhooks', async (req, res) => {
     { topic: 'shop/redact',            address: APP_URL + '/webhooks/shop/redact' },
     { topic: 'app/uninstalled',        address: APP_URL + '/webhooks/app/uninstalled' },
   ];
+  // First delete existing webhooks to avoid duplicates
+  try {
+    const existing = await fetch(`https://${shop}/admin/api/2025-10/webhooks.json`, {
+      headers: { 'X-Shopify-Access-Token': token }
+    }).then(r => r.json());
+    for (const wh of (existing.webhooks || [])) {
+      await fetch(`https://${shop}/admin/api/2025-10/webhooks/${wh.id}.json`, {
+        method: 'DELETE', headers: { 'X-Shopify-Access-Token': token }
+      });
+    }
+  } catch(e) {}
+
   for (const wh of webhooks) {
     try {
       const r = await fetch(`https://${shop}/admin/api/2025-10/webhooks.json`, {
