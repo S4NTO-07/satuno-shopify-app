@@ -689,7 +689,15 @@ app.get('/widget.js', (req, res) => {
 });
 
 // Webhook — uninstalled — uninstalled
-app.post('/webhooks/app/uninstalled', (req, res) => {
+app.post('/webhooks/app/uninstalled', express.raw({type: '*/*'}), (req, res) => {
+  const hmac = req.headers['x-shopify-hmac-sha256'];
+  if (hmac && SHOPIFY_API_SECRET) {
+    const hash = crypto.createHmac('sha256', SHOPIFY_API_SECRET).update(req.body).digest('base64');
+    if (hash !== hmac) {
+      console.error('Webhook HMAC failed');
+      return res.sendStatus(401);
+    }
+  }
   const shop = req.headers['x-shopify-shop-domain'];
   if (shop && merchants[shop]) {
     delete merchants[shop];
@@ -698,6 +706,7 @@ app.post('/webhooks/app/uninstalled', (req, res) => {
   }
   res.sendStatus(200);
 });
+
 
 // ── Admin endpoints ──────────────────────────────────────────────
 
