@@ -32,6 +32,33 @@ const APP_URL            = (process.env.APP_URL || 'http://localhost:3001').repl
 const SESSION_SECRET     = process.env.SESSION_SECRET     || 'satuno-dev-secret';
 const SATUNO_API_URL     = process.env.SATUNO_API_URL     || 'https://satuno-api-production.up.railway.app';
 const ADMIN_KEY          = process.env.ADMIN_KEY          || 'satuno_admin_2025';
+const RESEND_API_KEY     = process.env.RESEND_API_KEY     || '';
+
+// Send email via Resend
+async function sendEmail({ to, subject, html }) {
+  if (!RESEND_API_KEY) { console.log('No RESEND_API_KEY — email skipped'); return false; }
+  try {
+    const res = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: {
+        'Authorization': 'Bearer ' + RESEND_API_KEY,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        from: 'SATUNO Payments <onboarding@resend.dev>',
+        to: [to],
+        subject,
+        html
+      })
+    });
+    const data = await res.json();
+    console.log('Email sent:', data.id || data.error);
+    return !!data.id;
+  } catch(e) {
+    console.error('Email error:', e.message);
+    return false;
+  }
+}
 
 // ── Merchant store with Railway Volume persistence ────────────────
 const fs_store  = require('fs');
@@ -433,8 +460,10 @@ body{background:var(--bg);color:var(--text);font-family:'Space Grotesk',system-u
 
 <div class="status">
   <div class="status-dot"></div>
-  Widget active · Showing Bitcoin prices on your store
+  Widget active · Showing Bitcoin prices on your store · Currency: ${s.currency || 'USD'}
 </div>
+${req.query.upgraded === 'true' ? '<div style="background:rgba(34,197,94,0.1);border:1px solid rgba(34,197,94,0.2);border-radius:8px;padding:10px 14px;font-size:12px;color:#22c55e;margin-bottom:16px">🎉 Welcome to Pro! Lightning checkout is now active.</div>' : ''}
+${req.query.billing === 'declined' ? '<div style="background:rgba(255,59,48,0.08);border:1px solid rgba(255,59,48,0.2);border-radius:8px;padding:10px 14px;font-size:12px;color:#FF3B30;margin-bottom:16px">Payment was declined. Please try again.</div>' : ''}
 
 <form id="settingsForm">
 
@@ -442,17 +471,6 @@ body{background:var(--bg);color:var(--text);font-family:'Space Grotesk',system-u
     <div class="sec-label">General</div>
     <div class="card">
       <div class="row">
-        <div><div class="rl">Store currency</div><div class="rs">Used to calculate sats prices</div></div>
-        <select class="sel" name="currency" id="currencySelect">
-          <option value="MXN" ${s.currency==='MXN'?'selected':''}>MXN — Mexican Peso</option>
-          <option value="USD" ${s.currency==='USD'?'selected':''}>USD — US Dollar</option>
-          <option value="ARS" ${s.currency==='ARS'?'selected':''}>ARS — Argentine Peso</option>
-          <option value="COP" ${s.currency==='COP'?'selected':''}>COP — Colombian Peso</option>
-          <option value="BRL" ${s.currency==='BRL'?'selected':''}>BRL — Brazilian Real</option>
-          <option value="CLP" ${s.currency==='CLP'?'selected':''}>CLP — Chilean Peso</option>
-          <option value="EUR" ${s.currency==='EUR'?'selected':''}>EUR — Euro</option>
-          <option value="GBP" ${s.currency==='GBP'?'selected':''}>GBP — British Pound</option>
-        </select>
       </div>
       <div class="row">
         <div><div class="rl">Show sats badge</div><div class="rs">Display sats price next to every product</div></div>
@@ -471,6 +489,10 @@ body{background:var(--bg);color:var(--text);font-family:'Space Grotesk',system-u
       <div class="row">
         <div><div class="rl">Your Lightning address</div><div class="rs">Customers send payments here</div></div>
         <input type="text" class="inp" name="lightning" value="${s.lightning||''}" placeholder="you@walletofsatoshi.com"/>
+      </div>
+      <div class="row">
+        <div><div class="rl">Notification email</div><div class="rs">Where to receive payment confirmations</div></div>
+        <input type="text" class="inp" name="notifyEmail" value="${s.notifyEmail||merchant.email||''}" placeholder="you@email.com"/>
       </div>
       <div class="row">
         <div>
@@ -508,7 +530,7 @@ ${!isPro ? `
       <div class="pro-name"><span class="pro-lbl">PRO</span>SATUNO Pro</div>
       <div class="pro-sub">Accept Bitcoin via Lightning — $9 USD/mo</div>
     </div>
-    <a href="mailto:satunohq@proton.me?subject=SATUNO Shopify Pro — ${shop}" class="upgrade-btn">
+    <a href="/billing/upgrade?shop=${shop}" class="upgrade-btn">
       Upgrade — $9 USD/mo
     </a>
   </div>
@@ -534,7 +556,7 @@ ${!isPro ? `
 var rateCache = {};
 
 function loadPreview() {
-  var cur   = document.getElementById('currencySelect').value;
+  var cur   = '${s.currency || "USD"}';
   fetch('/api/rate?currency=' + cur)
     .then(function(r){ return r.json(); })
     .then(function(d) {
@@ -553,7 +575,7 @@ function loadPreview() {
     });
 }
 
-document.getElementById('currencySelect').addEventListener('change', loadPreview);
+  // Currency auto-detected from Shopify store
 loadPreview();
 
 document.getElementById('settingsForm').addEventListener('submit', function(e) {
@@ -565,8 +587,9 @@ document.getElementById('settingsForm').addEventListener('submit', function(e) {
     body: JSON.stringify({
       shop: '${shop}',
       settings: {
-        currency:     fd.get('currency'),
+
         lightning:    fd.get('lightning') || '',
+        notifyEmail:  fd.get('notifyEmail') || '',
         showBadge:    fd.get('showBadge') === 'on',
         showCheckout: fd.get('showCheckout') === 'on',
         badgeColor:   fd.get('badgeColor') || '#FF8A00',
@@ -787,6 +810,222 @@ app.post('/webhooks/app/uninstalled', express.raw({type: '*/*'}), (req, res) => 
   res.sendStatus(200);
 });
 
+
+// ── Lightning Payment Confirmation ───────────────────────────────
+app.post('/lightning-payment', async (req, res) => {
+  const { shop, customerName, customerEmail, sats, totalFiat, currency, items } = req.body;
+
+  if (!shop) return res.status(400).json({ error: 'Missing shop' });
+
+  const merchant = merchants[shop] || loadMerchants()[shop];
+  if (!merchant) return res.status(404).json({ error: 'Shop not found' });
+
+  const merchantEmail = merchant.settings.notifyEmail || merchant.email;
+  const merchantName  = merchant.name || shop;
+  const lightning     = merchant.settings.lightning || '';
+
+  // Build items table HTML
+  const itemsHtml = (items || []).map(item =>
+    `<tr>
+      <td style="padding:8px 0;border-bottom:1px solid #222;color:#ccc">${item.quantity}x ${item.title}${item.variant ? ' — ' + item.variant : ''}</td>
+      <td style="padding:8px 0;border-bottom:1px solid #222;color:#ccc;text-align:right">${item.price}</td>
+    </tr>`
+  ).join('');
+
+  const emailHtml = `
+    <!DOCTYPE html>
+    <html>
+    <body style="background:#0d0d0d;color:#f2f0ed;font-family:system-ui,sans-serif;padding:32px;margin:0">
+      <div style="max-width:520px;margin:0 auto">
+
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:24px">
+          <div style="background:#FF8A00;border-radius:8px;width:36px;height:36px;display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:900;color:#000">₿</div>
+          <div>
+            <div style="font-size:16px;font-weight:700">SATUNO</div>
+            <div style="font-size:11px;color:#666">Bitcoin Payment Notification</div>
+          </div>
+        </div>
+
+        <div style="background:#1a1816;border:1px solid rgba(255,138,0,0.3);border-radius:12px;padding:20px;margin-bottom:20px">
+          <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.8px;color:#FF8A00;margin-bottom:8px">⚡ New Lightning Payment</div>
+          <div style="font-size:28px;font-weight:800;color:#FF8A00;margin-bottom:4px">${sats ? Number(sats).toLocaleString() + ' sats' : ''}</div>
+          <div style="font-size:13px;color:#888">${totalFiat ? currency + ' ' + totalFiat : ''}</div>
+        </div>
+
+        <div style="background:#1a1816;border:1px solid rgba(255,255,255,0.08);border-radius:12px;padding:20px;margin-bottom:20px">
+          <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.8px;color:#666;margin-bottom:12px">Customer</div>
+          <div style="font-size:14px;font-weight:600;margin-bottom:4px">${customerName || 'Not provided'}</div>
+          <div style="font-size:13px;color:#888">${customerEmail || 'Not provided'}</div>
+        </div>
+
+        ${itemsHtml ? `
+        <div style="background:#1a1816;border:1px solid rgba(255,255,255,0.08);border-radius:12px;padding:20px;margin-bottom:20px">
+          <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.8px;color:#666;margin-bottom:12px">Order Details</div>
+          <table style="width:100%;border-collapse:collapse">
+            ${itemsHtml}
+            <tr>
+              <td style="padding-top:12px;font-weight:700;color:#f2f0ed">Total</td>
+              <td style="padding-top:12px;font-weight:700;color:#FF8A00;text-align:right">${sats ? Number(sats).toLocaleString() + ' sats' : totalFiat}</td>
+            </tr>
+          </table>
+        </div>
+        ` : ''}
+
+        <div style="font-size:11px;color:#444;text-align:center;margin-top:24px">
+          Powered by <span style="color:#FF8A00;font-weight:700">SATUNO</span> · satuno.lovable.app<br/>
+          This payment was sent to: ${lightning || 'your Lightning address'}
+        </div>
+
+      </div>
+    </body>
+    </html>
+  `;
+
+  // Send to merchant — don't store customer data
+  if (merchantEmail) {
+    await sendEmail({
+      to: merchantEmail,
+      subject: `⚡ New Lightning Payment — ${sats ? Number(sats).toLocaleString() + ' sats' : totalFiat}`,
+      html: emailHtml
+    });
+    console.log('Payment notification sent to:', merchantEmail);
+  } else {
+    console.log('No merchant email configured for:', shop);
+  }
+
+  // Don't save customer data
+  res.json({ success: true, message: 'Payment notification sent to merchant' });
+});
+
+// ── Shopify Billing API ──────────────────────────────────────────
+
+const PLAN_NAME  = 'SATUNO Pro';
+const PLAN_PRICE = '9.00';
+const PLAN_TEST  = process.env.NODE_ENV !== 'production'; // test mode in dev
+
+// Step 1 — Create recurring charge and redirect to Shopify payment page
+app.get('/billing/upgrade', async (req, res) => {
+  const shop = req.query.shop || req.session.shop;
+  if (!shop || !merchants[shop]) return res.redirect(`/auth?shop=${shop}`);
+
+  const token = merchants[shop].accessToken;
+  const returnUrl = `${APP_URL}/billing/callback?shop=${shop}`;
+
+  try {
+    const response = await fetch(`https://${shop}/admin/api/2025-10/recurring_application_charges.json`, {
+      method: 'POST',
+      headers: {
+        'X-Shopify-Access-Token': token,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        recurring_application_charge: {
+          name:         PLAN_NAME,
+          price:        PLAN_PRICE,
+          return_url:   returnUrl,
+          test:         PLAN_TEST,
+          trial_days:   0,
+        }
+      })
+    });
+
+    const data = await response.json();
+    const charge = data.recurring_application_charge;
+
+    if (!charge || !charge.confirmation_url) {
+      console.error('Billing error:', data);
+      return res.status(500).send('Failed to create billing charge. Please try again.');
+    }
+
+    // Save charge ID for verification later
+    merchants[shop].pendingChargeId = charge.id;
+    saveMerchants(merchants);
+
+    console.log(`Billing initiated for ${shop} — charge ${charge.id}`);
+
+    // Redirect merchant to Shopify payment page
+    res.redirect(charge.confirmation_url);
+
+  } catch(e) {
+    console.error('Billing error:', e.message);
+    res.status(500).send('Billing error. Please try again.');
+  }
+});
+
+// Step 2 — Handle callback after merchant approves/declines
+app.get('/billing/callback', async (req, res) => {
+  const { shop, charge_id } = req.query;
+
+  if (!shop || !merchants[shop]) return res.redirect(`/auth?shop=${shop}`);
+
+  const token = merchants[shop].accessToken;
+
+  try {
+    // Verify charge status
+    const response = await fetch(`https://${shop}/admin/api/2025-10/recurring_application_charges/${charge_id}.json`, {
+      headers: { 'X-Shopify-Access-Token': token }
+    });
+    const data = await response.json();
+    const charge = data.recurring_application_charge;
+
+    console.log(`Billing callback for ${shop} — status: ${charge?.status}`);
+
+    if (charge && charge.status === 'accepted') {
+      // Activate the charge
+      await fetch(`https://${shop}/admin/api/2025-10/recurring_application_charges/${charge_id}/activate.json`, {
+        method: 'POST',
+        headers: { 'X-Shopify-Access-Token': token, 'Content-Type': 'application/json' }
+      });
+
+      // Upgrade merchant to Pro
+      merchants[shop].settings.plan = 'pro';
+      merchants[shop].settings.showCheckout = true;
+      merchants[shop].chargeId = charge_id;
+      delete merchants[shop].pendingChargeId;
+      saveMerchants(merchants);
+
+      // Update ScriptTag with Pro settings
+      await updateScriptTag(shop, token, merchants[shop].settings, true);
+
+      // Save to metafields
+      await saveToMetafields(shop, token, merchants[shop].settings);
+
+      console.log(`✅ Pro activated for ${shop}`);
+      res.redirect(`/app?shop=${shop}&upgraded=true`);
+
+    } else if (charge && charge.status === 'declined') {
+      console.log(`Billing declined for ${shop}`);
+      res.redirect(`/app?shop=${shop}&billing=declined`);
+    } else {
+      res.redirect(`/app?shop=${shop}&billing=pending`);
+    }
+
+  } catch(e) {
+    console.error('Billing callback error:', e.message);
+    res.redirect(`/app?shop=${shop}`);
+  }
+});
+
+// Webhook — subscription cancelled
+app.post('/webhooks/app/subscriptions/update', async (req, res) => {
+  const hmac = req.headers['x-shopify-hmac-sha256'];
+  const rawBody = JSON.stringify(req.body);
+  if (!verifyWebhookHmac(rawBody, hmac)) return res.sendStatus(401);
+
+  const shop = req.headers['x-shopify-shop-domain'];
+  if (shop && merchants[shop]) {
+    const status = req.body.status;
+    if (status === 'cancelled' || status === 'declined' || status === 'frozen') {
+      merchants[shop].settings.plan = 'free';
+      merchants[shop].settings.showCheckout = false;
+      saveMerchants(merchants);
+      const token = merchants[shop].accessToken;
+      await updateScriptTag(shop, token, merchants[shop].settings, false);
+      console.log(`Plan downgraded for ${shop} — status: ${status}`);
+    }
+  }
+  res.sendStatus(200);
+});
 
 // ── Admin endpoints ──────────────────────────────────────────────
 
